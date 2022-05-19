@@ -119,6 +119,13 @@ func getHookFunc(packet *Packet, decoder *Decoder, flags *ConfigFlags) func(attr
 				_, _ = fmt.Fprintln(os.Stdout, "ERR Error decoding some part of the packet:", err)
 			}
 
+			if packet.Uid == UnknownUid {
+				err := packet.TryFindUidInProcNet()
+				if err != nil {
+					_, _ = fmt.Fprintln(os.Stdout, "ERR Error parsing /proc/net:", err)
+				}
+			}
+
 			if records := packet.DnsRecords; records != nil && len(records) > 0 {
 				for _, record := range records {
 					if record.AnswerType != layers.DNSTypePTR {
