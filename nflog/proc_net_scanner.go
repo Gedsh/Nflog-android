@@ -5,31 +5,36 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/google/gopacket/layers"
+	"io"
 	"net"
 	"os"
-	"regexp"
-	"strconv"
+	"strings"
 )
 
 const UnknownUid = -1
+const EmptyIp = "0.0.0.0"
 
 const (
-	ProcTcp = "/proc/net/tcp"
-	ProcUdp = "/proc/net/udp"
+	ProcTcp  = "/proc/net/tcp"
+	ProcUdp  = "/proc/net/udp"
+	ProcIcmp = "/proc/net/icmp"
 )
-
-var re = regexp.MustCompile(`^\s*\d+:\s+(?P<localIp>[\dA-F]+):(?P<localPort>[\dA-F]+)\s+(?P<remoteIp>[\dA-F]+):(?P<remotePort>[\dA-F]+)\s+[\dA-F]{2}\s+[\dA-F]+:[\dA-F]+\s+[\dA-F]+:[\dA-F]+\s+[\dA-F]+\s+(?P<uid>\d+)\s+.*$`)
 
 func (p *Packet) TryFindUidInProcNet() error {
 
-	uid, err := parseProcNet(ProcTcp, p)
-	if err != nil {
-		return err
+	var uid int32 = UnknownUid
+	var err error = nil
+
+	switch p.Protocol {
+	case layers.IPProtocolTCP:
+		uid, err = parseProcNet(ProcTcp, p)
+	case layers.IPProtocolUDP:
+		uid, err = parseProcNet(ProcUdp, p)
+	case layers.IPProtocolICMPv4:
+		uid, err = parseProcNet(ProcIcmp, p)
 	}
 
-	if uid == UnknownUid {
-		uid, err = parseProcNet(ProcUdp, p)
-	}
 	if err != nil {
 		return err
 	}
@@ -41,63 +46,84 @@ func (p *Packet) TryFindUidInProcNet() error {
 	return nil
 }
 
-func parseProcNet(filename string, p *Packet) (uid int32, err error) {
+func parseProcNet(fileName string, p *Packet) (uid int32, err error) {
 
-	file, err := os.Open(filename)
+	file, err := os.Open(fileName)
 	if err != nil {
 		return UnknownUid, err
 	}
+
 	defer func(file *os.File) {
 		err := file.Close()
 		if err != nil {
-			_, _ = fmt.Fprintf(os.Stdout, "ERR Error closing file %s: %v\n", filename, err)
+			_, _ = fmt.Fprintf(os.Stdout, "ERR Error closing file %s: %v\n", fileName, err)
 		}
 	}(file)
 
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		if re.MatchString(scanner.Text()) {
-			matchedLocalIp := fmt.Sprintf("${%s}", re.SubexpNames()[1])
-			matchedLocalPort := fmt.Sprintf("${%s}", re.SubexpNames()[2])
-			matchedRemoteIp := fmt.Sprintf("${%s}", re.SubexpNames()[3])
-			matchedRemotePort := fmt.Sprintf("${%s}", re.SubexpNames()[4])
-			matchedUid := fmt.Sprintf("${%s}", re.SubexpNames()[5])
+	var numberOfEntry int
+	var localIpEncoded string
+	var localPort int
+	var remoteIpEncoded string
+	var remotePort int
+	var connectionState int
+	var transmitQueue int
+	var receiveQueue int
+	var timerActive int
+	var numberOfJiffiesUntilTimerExpires int
+	var numberOfUnrecoveredRtoTimeouts int
 
-			localIp, err := convertIpV4(re.ReplaceAllString(scanner.Text(), matchedLocalIp))
-			if err != nil {
+	reader := bufio.NewReader(file)
+	for {
+
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			if err == io.EOF {
+				break
+			} else {
 				return UnknownUid, err
 			}
+		}
 
-			localPort, err := hex2dec(re.ReplaceAllString(scanner.Text(), matchedLocalPort))
-			if err != nil {
-				return UnknownUid, err
-			}
+		_, err = fmt.Fscanf(
+			strings.NewReader(line),
+			"%d: %8s:%X %8s:%X %X %X:%X %X:%X %X %d",
+			&numberOfEntry,
+			&localIpEncoded,
+			&localPort,
+			&remoteIpEncoded,
+			&remotePort,
+			&connectionState,
+			&transmitQueue,
+			&receiveQueue,
+			&timerActive,
+			&numberOfJiffiesUntilTimerExpires,
+			&numberOfUnrecoveredRtoTimeouts,
+			&uid)
+		if err != nil {
+			continue
+		}
 
-			remoteIp, err := convertIpV4(re.ReplaceAllString(scanner.Text(), matchedRemoteIp))
-			if err != nil {
-				return UnknownUid, err
-			}
+		localIp, err := convertIpV4(localIpEncoded)
+		if err != nil {
+			return UnknownUid, err
+		}
 
-			remotePort, err := hex2dec(re.ReplaceAllString(scanner.Text(), matchedRemotePort))
-			if err != nil {
-				return UnknownUid, err
-			}
+		remoteIp, err := convertIpV4(remoteIpEncoded)
+		if err != nil {
+			return UnknownUid, err
+		}
 
-			uid, err := strconv.Atoi(re.ReplaceAllString(scanner.Text(), matchedUid))
-			if err != nil {
-				return UnknownUid, err
-			}
+		//_, _ = fmt.Fprintf(os.Stdout, "%s:%d %s:%d %d %d\n", localIp, localPort, remoteIp, remotePort, connectionState, uid)
 
-			//_, _ = fmt.Fprintf(os.Stdout, "%s:%d %s:%d %d\n", localIp, localPort, remoteIp, remotePort, uid)
-
-			if p.SrcPort == Port(localPort) && p.DstPort == Port(remotePort) &&
-				p.SrcIP == localIp && p.DstIP == remoteIp {
-				return int32(uid), nil
-			}
-
+		if p.SrcPort == Port(localPort) &&
+			(p.DstPort == Port(remotePort) || remotePort == 0) &&
+			(p.SrcIP == localIp || localIp == EmptyIp) &&
+			(p.DstIP == remoteIp || remoteIp == EmptyIp) {
+			return uid, nil
 		}
 	}
-	return UnknownUid, nil
+
+	return UnknownUid, err
 }
 
 func convertIpV4(s string) (string, error) {
@@ -114,12 +140,4 @@ func convertIpV4(s string) (string, error) {
 	ipv4 := net.IPv4(decoded[3], decoded[2], decoded[1], decoded[0])
 
 	return ipv4.String(), nil
-}
-
-func hex2dec(hex string) (int64, error) {
-	dec, err := strconv.ParseInt(hex, 16, 32)
-	if err != nil {
-		return 0, err
-	}
-	return dec, nil
 }
