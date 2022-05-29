@@ -54,11 +54,11 @@ func main() {
 		Bufsize:  1024}
 
 	nf, err := nflog.Open(&config)
+	defer nf.Close()
 	if err != nil {
 		_, _ = fmt.Fprintln(os.Stdout, "ERR Could not open nflog socket:", err)
 		return
 	}
-	defer nf.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -84,10 +84,7 @@ func main() {
 	// Block till the signal
 	<-quitCh
 
-	err = PidFileRemove()
-	if err != nil {
-		_, _ = fmt.Fprintf(os.Stdout, "ERR Failed to remove pid file: %v\n", err)
-	}
+	removePidFile()
 }
 
 func getHookFunc(packet *Packet, decoder *Decoder, flags *ConfigFlags) func(attrs nflog.Attribute) int {
@@ -119,12 +116,13 @@ func getHookFunc(packet *Packet, decoder *Decoder, flags *ConfigFlags) func(attr
 				_, _ = fmt.Fprintln(os.Stdout, "ERR Error decoding some part of the packet:", err)
 			}
 
-			if packet.Uid == UnknownUid {
-				err := packet.TryFindUidInProcNet()
-				if err != nil {
-					_, _ = fmt.Fprintln(os.Stdout, "ERR Error parsing /proc/net:", err)
-				}
-			}
+			//Do not use proc/net scan to save battery power
+			//if packet.Uid == UnknownUid {
+			//	err := packet.TryFindUidInProcNet()
+			//	if err != nil {
+			//		_, _ = fmt.Fprintln(os.Stdout, "ERR Error parsing /proc/net:", err)
+			//	}
+			//}
 
 			if records := packet.DnsRecords; records != nil && len(records) > 0 {
 				for _, record := range records {
@@ -159,5 +157,12 @@ func getErrorFunc() func(e error) int {
 			_, _ = fmt.Fprintf(os.Stdout, "ERR Received error on hook: %v\n", e)
 		}
 		return 0
+	}
+}
+
+func removePidFile() {
+	err := PidFileRemove()
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stdout, "ERR Failed to remove pid file: %v\n", err)
 	}
 }
