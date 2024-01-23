@@ -4,13 +4,16 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"github.com/florianl/go-nflog/v2"
-	"github.com/google/gopacket/layers"
 	"os"
 	"os/signal"
 	"runtime"
 	"strings"
 	"syscall"
+
+	"time"
+
+	"github.com/florianl/go-nflog/v2"
+	"github.com/google/gopacket/layers"
 )
 
 const localhost = "127.0.0.1"
@@ -100,8 +103,10 @@ func getHookFunc(packet *Packet, decoder *Decoder, flags *ConfigFlags) func(attr
 
 		packet.Reset()
 
-		if time := attrs.Timestamp; time != nil {
-			packet.Time = *time
+		if packetTime := attrs.Timestamp; packetTime != nil && packetTime.UnixMilli() != 0 {
+			packet.Time = *packetTime
+		} else {
+			packet.Time = time.Now()
 		}
 
 		if uid := attrs.UID; uid != nil {
@@ -128,8 +133,8 @@ func getHookFunc(packet *Packet, decoder *Decoder, flags *ConfigFlags) func(attr
 				for _, record := range records {
 					if record.AnswerType != layers.DNSTypePTR {
 						_, _ = fmt.Fprintf(os.Stdout,
-							"DNS QNAME:%s ANAME:%s CNAME:%s HINFO:%s RCODE:%d IP:%s\n",
-							record.Qname, record.Aname, record.Cname, record.Hinfo, record.Rcode, record.Ip)
+							"DNS TIME:%d QNAME:%s ANAME:%s CNAME:%s HINFO:%s RCODE:%d IP:%s\n",
+							packet.Time.UnixMilli(), record.Qname, record.Aname, record.Cname, record.Hinfo, record.Rcode, record.Ip)
 					}
 				}
 			} else if (flags.ownUid == noUid || packet.Uid != flags.ownUid) &&
@@ -137,8 +142,8 @@ func getHookFunc(packet *Packet, decoder *Decoder, flags *ConfigFlags) func(attr
 				(packet.SrcIP != packet.DstIP || packet.SrcPort != packet.DstPort) &&
 				(packet.Uid != savedUid || packet.SrcIP != savedSrcIP || packet.SrcPort != savedSrcPort) {
 				_, _ = fmt.Fprintf(os.Stdout,
-					"PKT UID:%d %s SIP:%s SPT:%d DIP:%s DPT:%d\n",
-					packet.Uid, packet.Protocol.String(), packet.SrcIP, packet.SrcPort, packet.DstIP, packet.DstPort)
+					"PKT TIME:%d UID:%d %s SIP:%s SPT:%d DIP:%s DPT:%d\n",
+					packet.Time.UnixMilli(), packet.Uid, packet.Protocol.String(), packet.SrcIP, packet.SrcPort, packet.DstIP, packet.DstPort)
 				savedUid = packet.Uid
 				savedSrcIP = packet.SrcIP
 				savedSrcPort = packet.SrcPort
