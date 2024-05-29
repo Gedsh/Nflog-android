@@ -28,6 +28,30 @@ export CGO_CXXFLAGS="-g -O3 -ftree-vectorize -fvectorize -fslp-vectorize"
 export CGO_FFLAGS="-g -O3 -ftree-vectorize -fvectorize -fslp-vectorize"
 export CGO_LDFLAGS="-g -O3 -ftree-vectorize -fvectorize -fslp-vectorize"
 
+
+
+
+#x86:
+export GOARCH='386'
+export GO386=sse2
+export CC="i686-linux-android16-clang"
+export CCX="i686-linux-android16-clang++"
+export CGO_CFLAGS="-g -O3 -msse2 -ftree-vectorize -fvectorize -fslp-vectorize"
+export CGO_CPPFLAGS="-g -O3 -msse2 -ftree-vectorize -fvectorize -fslp-vectorize"
+export CGO_CXXFLAGS="-g -O3 -msse2 -ftree-vectorize -fvectorize -fslp-vectorize"
+export CGO_FFLAGS="-g -O3 -msse2 -ftree-vectorize -fvectorize -fslp-vectorize"
+export CGO_LDFLAGS="-g -O3 -msse2 -ftree-vectorize -fvectorize -fslp-vectorize"
+
+#x86_64:
+export GOARCH='amd64'
+export CC="x86_64-linux-android21-clang"
+export CCX="x86_64-linux-android21-clang++"
+export CGO_CFLAGS="-g -O3 -ftree-vectorize -fvectorize -fslp-vectorize"
+export CGO_CPPFLAGS="-g -O3 -ftree-vectorize -fvectorize -fslp-vectorize"
+export CGO_CXXFLAGS="-g -O3 -ftree-vectorize -fvectorize -fslp-vectorize"
+export CGO_FFLAGS="-g -O3 -ftree-vectorize -fvectorize -fslp-vectorize"
+export CGO_LDFLAGS="-g -O3 -ftree-vectorize -fvectorize -fslp-vectorize"
+
 #common:
 go clean
 go build -x -ldflags="-s -w" -compiler gc -gcflags="-m -dwarf=false" -o libnflog.so
