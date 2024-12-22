@@ -1,10 +1,11 @@
 package main
 
 import (
+	"time"
+
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/ip4defrag"
 	"github.com/google/gopacket/layers"
-	"time"
 )
 
 type ProtocolVersion uint8
@@ -53,6 +54,7 @@ type Decoder struct {
 	udp        layers.UDP
 	icmp4      layers.ICMPv4
 	icmp6      layers.ICMPv6
+	igmp       layers.IGMP
 	dns        layers.DNS
 	payload    gopacket.Payload
 	decoded    []gopacket.LayerType
@@ -65,9 +67,9 @@ type Decoder struct {
 func NewDecoder() *Decoder {
 	decoder := Decoder{}
 	decoder.decoded = make([]gopacket.LayerType, 0, 10)
-	decoder.ipv4Parser = gopacket.NewDecodingLayerParser(layers.LayerTypeIPv4, &decoder.ip4, &decoder.tcp, &decoder.udp, &decoder.icmp4, &decoder.payload)
+	decoder.ipv4Parser = gopacket.NewDecodingLayerParser(layers.LayerTypeIPv4, &decoder.ip4, &decoder.tcp, &decoder.udp, &decoder.icmp4, &decoder.igmp, &decoder.payload)
 	decoder.ipv4Parser.IgnoreUnsupported = true
-	decoder.ipv6Parser = gopacket.NewDecodingLayerParser(layers.LayerTypeIPv6, &decoder.ip6, &decoder.tcp, &decoder.udp, &decoder.icmp6, &decoder.payload)
+	decoder.ipv6Parser = gopacket.NewDecodingLayerParser(layers.LayerTypeIPv6, &decoder.ip6, &decoder.tcp, &decoder.udp, &decoder.icmp6, &decoder.igmp, &decoder.payload)
 	decoder.ipv6Parser.IgnoreUnsupported = true
 	decoder.dnsParser = gopacket.NewDecodingLayerParser(layers.LayerTypeDNS, &decoder.dns)
 	decoder.dnsParser.IgnoreUnsupported = true
@@ -132,6 +134,10 @@ func decodeIPv4(p *Packet, decoder *Decoder) (gopacket.Payload, error) {
 			return handleUdp(p, decoder), nil
 		case layers.LayerTypeICMPv4:
 			handleIcmp4(p)
+			return nil, err
+		case layers.LayerTypeIGMP:
+			handleIgmp(p)
+			return nil, err
 		}
 	}
 
@@ -148,11 +154,15 @@ func decodeIPv6(p *Packet, decoder *Decoder) (gopacket.Payload, error) {
 		case layers.LayerTypeIPv6:
 			handleIPv6(p, decoder)
 		case layers.LayerTypeTCP:
-			return handleTcp(p, decoder), nil
+			return handleTcp(p, decoder), err
 		case layers.LayerTypeUDP:
-			return handleUdp(p, decoder), nil
+			return handleUdp(p, decoder), err
 		case layers.LayerTypeICMPv6:
 			handleIcmp6(p)
+			return nil, err
+		case layers.LayerTypeIGMP:
+			handleIgmp(p)
+			return nil, err
 		}
 	}
 
@@ -201,6 +211,10 @@ func handleIcmp4(p *Packet) {
 
 func handleIcmp6(p *Packet) {
 	p.Protocol = layers.IPProtocolICMPv6
+}
+
+func handleIgmp(p *Packet) {
+	p.Protocol = layers.IPProtocolIGMP
 }
 
 func (p *Packet) decodeDNS(data []byte, decoder *Decoder) error {
